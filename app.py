@@ -185,10 +185,11 @@ if arq_vendas and arq_estoque:
                 """
                 
                 with st.spinner("Analisando cenários..."):
-                    model = genai.GenerativeModel('gemini-pro')
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     res = model.generate_content(prompt)
                     st.write(res.text)
             else:
                 st.warning("⚠️ API Key não configurada. Adicione no 'Secrets' do Streamlit.")
 else:
+
     st.info("👆 Aguardando arquivos... Solte os dois relatórios acima.")
