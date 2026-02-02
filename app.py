@@ -7,50 +7,52 @@ import time
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Nexus-Compre", page_icon="🛒", layout="wide")
 
-# --- 2. FUNÇÃO DE CONEXÃO DIRETA (SEM BIBLIOTECA GOOGLE) ---
-def conectar_via_api_rest(prompt, api_key):
-    # Vamos tentar conectar direto na URL do Google, sem usar a biblioteca bugada
-    
-    # Opção A: Gemini 1.5 Flash (Rápido e Grátis)
-    url_flash = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    
-    # Opção B: Gemini 1.0 Pro (O Clássico - Backup)
-    url_pro = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+# --- 2. CONEXÃO FORÇA BRUTA (REST API) ---
+def conectar_forca_bruta(prompt, api_key):
+    # Lista de modelos para testar via URL direta
+    # Se um falhar, ele pula para o próximo imediatamente
+    modelos_urls = [
+        ("gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"),
+        ("gemini-1.5-flash-latest", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent"),
+        ("gemini-2.0-flash", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"),
+        ("gemini-1.5-pro", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"),
+    ]
     
     headers = {"Content-Type": "application/json"}
     payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
+        "contents": [{"parts": [{"text": prompt}]}]
     }
+    
+    log_erros = []
 
-    # Tentativa 1: Flash
-    try:
-        response = requests.post(url_flash, headers=headers, data=json.dumps(payload))
-        if response.status_code == 200:
-            resultado = response.json()
-            texto = resultado['candidates'][0]['content']['parts'][0]['text']
-            return texto, "Gemini 1.5 Flash (Via API REST)"
-        else:
-            # Se der erro (404 ou 429), vamos para o backup
-            pass 
-    except:
-        pass
+    for nome_modelo, url_base in modelos_urls:
+        url_final = f"{url_base}?key={api_key}"
+        try:
+            # Tenta conectar
+            response = requests.post(url_final, headers=headers, data=json.dumps(payload), timeout=10)
+            
+            if response.status_code == 200:
+                # SUCESSO!
+                resultado = response.json()
+                try:
+                    texto = resultado['candidates'][0]['content']['parts'][0]['text']
+                    return texto, f"Sucesso via {nome_modelo}"
+                except:
+                    # Às vezes volta 200 mas sem texto (bloqueio de segurança)
+                    log_erros.append(f"{nome_modelo}: Resposta vazia (Bloqueio?)")
+            elif response.status_code == 429:
+                log_erros.append(f"{nome_modelo}: 429 (Limite de Cota)")
+            else:
+                # Erro 404, 400, 500
+                log_erros.append(f"{nome_modelo}: {response.status_code} - {response.text[:100]}...") # Pega só o começo do erro
+        
+        except Exception as e:
+            log_erros.append(f"{nome_modelo}: Erro técnico {str(e)}")
+            
+    # Se saiu do loop, nada funcionou
+    return None, log_erros
 
-    # Tentativa 2: Pro (Clássico)
-    try:
-        time.sleep(1) # Respira
-        response = requests.post(url_pro, headers=headers, data=json.dumps(payload))
-        if response.status_code == 200:
-            resultado = response.json()
-            texto = resultado['candidates'][0]['content']['parts'][0]['text']
-            return texto, "Gemini 1.0 Pro (Backup Seguro)"
-        else:
-            return None, f"Erro Google: {response.text}"
-    except Exception as e:
-        return None, f"Erro Técnico: {str(e)}"
-
-# --- 3. LEITURA DE DADOS ---
+# --- 3. LEITURA DE DADOS (Blindada) ---
 def carregar_dados(arq_vendas, arq_estoque):
     try:
         # Vendas
@@ -99,7 +101,7 @@ def carregar_dados(arq_vendas, arq_estoque):
 
 # --- 4. INTERFACE ---
 st.title("🛒 Nexus-Compre: Agente Integrado")
-st.caption("Modo API Direta: Ignorando erros de biblioteca.")
+st.caption("Modo API: Varredura Multi-Modelo")
 
 up1, up2 = st.columns(2)
 f1 = up1.file_uploader("Vendas")
@@ -138,7 +140,6 @@ if f1 and f2:
                 prompt = f"""
                 ATUE COMO UM GERENTE DE COMPRAS DE SUPERMERCADO SÊNIOR.
                 Contexto: Dados reais de Varejo Alimentar.
-                
                 NÃO SEJA UM COACH. SEJA TÉCNICO E COMERCIAL.
 
                 DADOS:
@@ -152,11 +153,6 @@ if f1 and f2:
                 3 Ações curtas e grossas para resolver isso hoje e liberar caixa.
                 """
                 
-                with st.spinner("Conectando direto nos servidores do Google..."):
-                    txt, modelo = conectar_via_api_rest(prompt, st.secrets["GEMINI_API_KEY"])
+                with st.spinner("Testando conexão com múltiplos modelos..."):
+                    txt, info = conectar_forca_bruta(prompt, st.secrets["GEMINI_API_KEY"])
                     if txt:
-                        st.success(f"Analise gerada por: {modelo}")
-                        st.markdown(txt)
-                    else:
-                        st.error("Falha na API Direta. Detalhes:")
-                        st.code(modelo)
