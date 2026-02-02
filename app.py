@@ -7,53 +7,69 @@ import time
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Nexus-Compre", page_icon="🛒", layout="wide")
 
-# --- 2. CONEXÃO INTELIGENTE (COM RETRY) ---
-def conectar_com_insistencia(prompt, api_key):
-    # O único modelo que sua conta aceitou foi o 2.0 Flash
-    # Vamos focar nele e no 1.5 Flash 8B (que é leve)
-    modelos_prioritarios = [
-        ("gemini-2.0-flash", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"),
-        ("gemini-1.5-flash-8b", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent"),
-    ]
+# --- 2. FUNÇÃO DE AUTO-DESCOBERTA DE MODELOS ---
+def descobrir_e_conectar(prompt, api_key):
+    # PASSO 1: Perguntar ao Google quais modelos existem para esta conta
+    url_listar = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    
+    try:
+        response_list = requests.get(url_listar)
+        if response_list.status_code != 200:
+            return None, f"Erro ao listar modelos: {response_list.status_code}"
+            
+        dados = response_list.json()
+        
+        # Filtrar apenas modelos que geram texto ('generateContent') e são da família Gemini
+        modelos_disponiveis = []
+        if 'models' in dados:
+            for m in dados['models']:
+                if 'generateContent' in m['supportedGenerationMethods'] and 'gemini' in m['name']:
+                    modelos_disponiveis.append(m['name'])
+        
+        # Ordenar para tentar os 'Flash' primeiro (são mais rápidos e baratos)
+        # A lista fica tipo: ['models/gemini-1.5-flash', 'models/gemini-pro', ...]
+        modelos_prioritarios = sorted(modelos_disponiveis, key=lambda x: 'flash' not in x)
+        
+        if not modelos_prioritarios:
+            return None, "Nenhum modelo Gemini encontrado na sua conta."
+
+    except Exception as e:
+        return None, f"Erro de conexão na listagem: {str(e)}"
+
+    # PASSO 2: Tentar gerar o texto usando a lista real que o Google devolveu
+    log_tentativas = []
     
     headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-    
-    log_erros = []
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
-    for nome_modelo, url_base in modelos_prioritarios:
-        url_final = f"{url_base}?key={api_key}"
+    for modelo_nome in modelos_prioritarios:
+        # A URL precisa ser montada com o nome exato que o Google mandou
+        # modelo_nome já vem como 'models/gemini-xyz'
+        url_gerar = f"https://generativelanguage.googleapis.com/v1beta/{modelo_nome}:generateContent?key={api_key}"
         
-        # Tenta até 3 vezes o mesmo modelo se der erro de cota
-        for tentativa in range(3):
-            try:
-                response = requests.post(url_final, headers=headers, data=json.dumps(payload), timeout=20)
-                
-                if response.status_code == 200:
-                    resultado = response.json()
-                    try:
-                        texto = resultado['candidates'][0]['content']['parts'][0]['text']
-                        return texto, f"Sucesso via {nome_modelo}"
-                    except:
-                        pass # Resposta vazia, tenta de novo
-                
-                elif response.status_code == 429:
-                    # O PULO DO GATO: Se der erro de limite, espera 10 segundos!
-                    time.sleep(10)
-                    continue # Volta para o loop de tentativas
-                
-                else:
-                    # Erro grave (404, 500), sai desse modelo
-                    log_erros.append(f"{nome_modelo}: {response.status_code}")
-                    break 
+        try:
+            response = requests.post(url_gerar, headers=headers, data=json.dumps(payload), timeout=20)
             
-            except Exception as e:
-                log_erros.append(f"{nome_modelo}: Erro {str(e)}")
-                break
+            if response.status_code == 200:
+                resultado = response.json()
+                try:
+                    texto = resultado['candidates'][0]['content']['parts'][0]['text']
+                    return texto, f"Sucesso usando: **{modelo_nome}**"
+                except:
+                    log_tentativas.append(f"{modelo_nome}: Resposta vazia")
             
-    return None, log_erros
+            elif response.status_code == 429:
+                log_tentativas.append(f"{modelo_nome}: Sem cota (429)")
+                # Não espera muito aqui, já pula para o próximo modelo da lista
+                continue 
+            else:
+                log_tentativas.append(f"{modelo_nome}: Erro {response.status_code}")
+        
+        except Exception as e:
+            log_tentativas.append(f"{modelo_nome}: Erro técnico")
+    
+    # Se chegou aqui, falhou em todos
+    return None, log_tentativas
 
 # --- 3. LEITURA DE DADOS ---
 def carregar_dados(arq_vendas, arq_estoque):
@@ -166,13 +182,14 @@ if arq_vendas and arq_estoque:
                 3 Ações curtas e grossas para resolver isso hoje e liberar caixa.
                 """
                 
-                with st.spinner("Negociando cota com o Google (pode levar uns segundos)..."):
-                    txt, info = conectar_com_insistencia(prompt, st.secrets["GEMINI_API_KEY"])
+                with st.spinner("🕵️ O Agente está procurando o melhor modelo disponível na sua conta..."):
+                    txt, info = descobrir_e_conectar(prompt, st.secrets["GEMINI_API_KEY"])
                     if txt:
-                        st.success(f"✅ Análise feita via: {info}")
+                        st.success(f"✅ {info}")
                         st.markdown(txt)
                     else:
-                        st.error("❌ Falha Total. O Google bloqueou temporariamente por excesso de uso.")
+                        st.error("❌ Falha Total. Tentamos todos os modelos da sua conta e nenhum respondeu.")
+                        st.write("Relatório de erros:")
                         st.json(info)
 else:
     st.info("👆 Por favor, faça o upload dos DOIS arquivos acima para começar.")
