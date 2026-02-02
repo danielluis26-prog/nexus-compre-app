@@ -7,14 +7,24 @@ import time
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Nexus-Compre", page_icon="🛒", layout="wide")
 
-# --- 2. CONEXÃO FORÇA BRUTA (REST API) ---
+# --- 2. CONEXÃO FORÇA BRUTA (REST API - VARREDURA TOTAL) ---
 def conectar_forca_bruta(prompt, api_key):
-    # Lista de modelos para testar
+    # Lista expandida com versões específicas e antigas
     modelos_urls = [
+        # TENTATIVA 1: O Clássico (Geralmente funciona quando os novos falham)
+        ("gemini-pro", "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"),
+        
+        # TENTATIVA 2: Versões específicas do Flash (às vezes o nome curto falha)
+        ("gemini-1.5-flash-001", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent"),
+        ("gemini-1.5-flash-002", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent"),
+        
+        # TENTATIVA 3: Nomes curtos
         ("gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"),
         ("gemini-1.5-flash-latest", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent"),
+        
+        # TENTATIVA 4: Experimental (Pode dar limite de cota)
         ("gemini-2.0-flash", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"),
-        ("gemini-1.5-pro", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"),
+        ("gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"),
     ]
     
     headers = {"Content-Type": "application/json"}
@@ -27,17 +37,22 @@ def conectar_forca_bruta(prompt, api_key):
     for nome_modelo, url_base in modelos_urls:
         url_final = f"{url_base}?key={api_key}"
         try:
-            response = requests.post(url_final, headers=headers, data=json.dumps(payload), timeout=10)
+            # Tenta conectar
+            response = requests.post(url_final, headers=headers, data=json.dumps(payload), timeout=15)
             
             if response.status_code == 200:
+                # SUCESSO!
                 resultado = response.json()
                 try:
                     texto = resultado['candidates'][0]['content']['parts'][0]['text']
                     return texto, f"Sucesso via {nome_modelo}"
                 except:
-                    log_erros.append(f"{nome_modelo}: Resposta vazia")
+                    log_erros.append(f"{nome_modelo}: Resposta 200 mas vazia")
+            
             elif response.status_code == 429:
-                log_erros.append(f"{nome_modelo}: 429 (Limite de Cota)")
+                # Se for limite de cota, espera 2 segundinhos e tenta o próximo
+                log_erros.append(f"{nome_modelo}: Limite de Cota (429)")
+                time.sleep(2) 
             else:
                 log_erros.append(f"{nome_modelo}: {response.status_code}")
         
@@ -56,7 +71,6 @@ def carregar_dados(arq_vendas, arq_estoque):
             arq_vendas.seek(0)
             df_v = pd.read_excel(arq_vendas)
             
-        # AQUI ESTAVA O ERRO - Refiz de forma segura
         mapa_colunas = {
             'Item de Estoque:': 'Codigo',
             'Qtde\r\nCupom': 'Descricao',
@@ -65,7 +79,6 @@ def carregar_dados(arq_vendas, arq_estoque):
         }
         df_v = df_v.rename(columns=mapa_colunas)
         
-        # Seleção segura de colunas
         cols_v = ['Codigo', 'Descricao', 'Venda', 'Fat']
         df_v = df_v[[c for c in cols_v if c in df_v.columns]]
         
@@ -81,7 +94,6 @@ def carregar_dados(arq_vendas, arq_estoque):
             
         df_e = df_e.dropna(subset=[0])
         
-        # Verificação e Renomeação do Estoque
         if len(df_e.columns) > 5:
             df_e = df_e.rename(columns={0: 'Codigo', 1: 'Desc_E', 5: 'Estoque'})
             
@@ -93,16 +105,14 @@ def carregar_dados(arq_vendas, arq_estoque):
         else:
             return None
             
-        # --- MERGE (UNIÃO) ---
+        # --- MERGE ---
         df = pd.merge(df_e, df_v, on='Codigo', how='outer')
         
-        # Juntar descrições
         if 'Descricao' in df.columns and 'Desc_E' in df.columns:
             df['Descricao'] = df['Descricao'].fillna(df['Desc_E']).fillna("Item s/ Nome")
         elif 'Desc_E' in df.columns:
             df['Descricao'] = df['Desc_E'].fillna("Item s/ Nome")
         
-        # Limpar nulos
         cols_finais = ['Codigo', 'Descricao', 'Estoque', 'Venda', 'Fat']
         for c in cols_finais: 
             if c not in df.columns: df[c] = 0
@@ -169,13 +179,13 @@ if arq_vendas and arq_estoque:
                 3 Ações curtas e grossas para resolver isso hoje e liberar caixa.
                 """
                 
-                with st.spinner("O Agente está analisando os dados..."):
+                with st.spinner("O Agente está tentando 8 satélites diferentes..."):
                     txt, info = conectar_forca_bruta(prompt, st.secrets["GEMINI_API_KEY"])
                     if txt:
                         st.success(f"✅ Análise feita via: {info}")
                         st.markdown(txt)
                     else:
-                        st.error("❌ Falha Total na conexão com o Google.")
+                        st.error("❌ Falha Total. Relatório:")
                         st.json(info)
 else:
     st.info("👆 Por favor, faça o upload dos DOIS arquivos acima para começar.")
