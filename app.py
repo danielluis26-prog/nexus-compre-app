@@ -27,11 +27,9 @@ def conectar_forca_bruta(prompt, api_key):
     for nome_modelo, url_base in modelos_urls:
         url_final = f"{url_base}?key={api_key}"
         try:
-            # Tenta conectar
             response = requests.post(url_final, headers=headers, data=json.dumps(payload), timeout=10)
             
             if response.status_code == 200:
-                # SUCESSO!
                 resultado = response.json()
                 try:
                     texto = resultado['candidates'][0]['content']['parts'][0]['text']
@@ -46,7 +44,6 @@ def conectar_forca_bruta(prompt, api_key):
         except Exception as e:
             log_erros.append(f"{nome_modelo}: Erro técnico {str(e)}")
             
-    # Se saiu do loop, nada funcionou
     return None, log_erros
 
 # --- 3. LEITURA DE DADOS (Blindada) ---
@@ -102,37 +99,4 @@ st.caption("Modo API: Varredura Multi-Modelo")
 
 up1, up2 = st.columns(2)
 f1 = up1.file_uploader("Vendas")
-f2 = up2.file_uploader("Estoque")
-
-if f1 and f2:
-    df = carregar_dados(f1, f2)
-    if df is not None:
-        # Lógica Nexus
-        df = df.sort_values('Fat', ascending=False)
-        total = df['Fat'].sum()
-        df['Fat_Acum'] = df['Fat'].cumsum()
-        df['Perc'] = df['Fat_Acum'] / total if total > 0 else 0
-        
-        def def_curva(x): return 'A' if x<=0.5 else ('B' if x<=0.8 else 'C')
-        df['Curva'] = df['Perc'].apply(def_curva)
-        
-        # Lógica Fantasma
-        df['Fantasma'] = (df['Estoque'] > 5) & (df['Venda'] == 0)
-        
-        fantasmas = df[df['Fantasma']]
-        ruptura = df[(df['Curva']=='A') & (df['Estoque']==0)]
-        
-        # Métricas
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Itens Totais", len(df))
-        c2.metric("Estoque Fantasma", len(fantasmas), delta="-Atenção")
-        c3.metric("Ruptura Curva A", len(ruptura), delta_color="inverse")
-        
-        st.dataframe(fantasmas[['Codigo', 'Descricao', 'Estoque', 'Venda']].head(10))
-        
-        if st.button("🤖 Analisar (Modo Comprador)"):
-            if "GEMINI_API_KEY" not in st.secrets:
-                st.error("Sem chave API.")
-            else:
-                prompt = f"""
-                ATUE COMO UM GERENTE DE COMPRAS DE SUPERMERCADO SÊNIOR.
+f2 = up2
