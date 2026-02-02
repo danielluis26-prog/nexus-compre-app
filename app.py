@@ -9,7 +9,7 @@ st.set_page_config(page_title="Nexus-Compre", page_icon="🛒", layout="wide")
 
 # --- 2. CONEXÃO FORÇA BRUTA (REST API) ---
 def conectar_forca_bruta(prompt, api_key):
-    # Lista de modelos para testar via URL direta
+    # Lista de modelos para testar
     modelos_urls = [
         ("gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"),
         ("gemini-1.5-flash-latest", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent"),
@@ -71,32 +71,4 @@ def carregar_dados(arq_vendas, arq_estoque):
         df_e = df_e.dropna(subset=[0])
         if len(df_e.columns) > 5:
             df_e = df_e.rename(columns={0: 'Codigo', 1: 'Desc_E', 5: 'Estoque'})
-            df_e = df_e[['Codigo', 'Desc_E', 'Estoque']]
-            df_e['Codigo'] = pd.to_numeric(df_e['Codigo'], errors='coerce')
-            df_e = df_e.dropna(subset=['Codigo'])
-        else:
-            return None
-            
-        # Merge
-        df = pd.merge(df_e, df_v, on='Codigo', how='outer')
-        if 'Descricao' in df.columns and 'Desc_E' in df.columns:
-            df['Descricao'] = df['Descricao'].fillna(df['Desc_E']).fillna("Item s/ Nome")
-        elif 'Desc_E' in df.columns:
-            df['Descricao'] = df['Desc_E'].fillna("Item s/ Nome")
-        
-        cols = ['Codigo', 'Descricao', 'Estoque', 'Venda', 'Fat']
-        for c in cols: 
-            if c not in df.columns: df[c] = 0
-            if c != 'Descricao': df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
-            
-        return df[cols]
-    except:
-        return None
-
-# --- 4. INTERFACE ---
-st.title("🛒 Nexus-Compre: Agente Integrado")
-st.caption("Modo API: Varredura Multi-Modelo")
-
-up1, up2 = st.columns(2)
-f1 = up1.file_uploader("Vendas")
-f2 = up2
+            df_e = df_e[['
