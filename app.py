@@ -15,6 +15,7 @@ def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
             arquivo_vendas.seek(0)
             df_vendas = pd.read_excel(arquivo_vendas)
 
+        # Renomear colunas
         df_vendas = df_vendas.rename(columns={
             'Item de Estoque:': 'Codigo',
             'Qtde\r\nCupom': 'Descricao_Venda', 
@@ -22,6 +23,7 @@ def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
             'Valor Venda': 'Faturamento'
         })
         
+        # Filtrar e limpar
         cols_vendas = [c for c in ['Codigo', 'Descricao_Venda', 'Qtd_Venda_30d', 'Faturamento'] if c in df_vendas.columns]
         df_vendas = df_vendas[cols_vendas]
         df_vendas['Codigo'] = pd.to_numeric(df_vendas['Codigo'], errors='coerce')
@@ -49,6 +51,7 @@ def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
         # MERGE
         df_final = pd.merge(df_estoque, df_vendas, on='Codigo', how='outer')
         
+        # Consolidar Descrição
         if 'Descricao_Venda' in df_final.columns and 'Descricao_Estoque' in df_final.columns:
             df_final['Descricao'] = df_final['Descricao_Venda'].fillna(df_final['Descricao_Estoque']).fillna("Item s/ Descrição")
             df_final = df_final.drop(columns=['Descricao_Venda', 'Descricao_Estoque'])
@@ -57,6 +60,7 @@ def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
         elif 'Descricao_Estoque' in df_final.columns:
              df_final['Descricao'] = df_final['Descricao_Estoque'].fillna("Item s/ Descrição")
         
+        # Zerar nulos
         for col in ['Estoque_Atual', 'Qtd_Venda_30d', 'Faturamento']:
             if col in df_final.columns:
                 df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0)
@@ -93,7 +97,7 @@ def processar_nexus(df):
 
 # --- 4. INTERFACE ---
 st.title("🛒 Nexus-Compre: Agente Integrado")
-st.markdown("**Versão Blindada** | Biblioteca: v0.8.3")
+st.markdown("**Versão VIP** | IA: Gemini 2.0 Flash")
 
 col_up1, col_up2 = st.columns(2)
 arq_vendas = col_up1.file_uploader("VENDAS", type=["csv", "xls", "xlsx"])
@@ -120,30 +124,36 @@ if arq_vendas and arq_estoque:
         with tab3: st.dataframe(df_nexus, use_container_width=True)
         
         st.divider()
-        if st.button("🤖 Pedir Análise (Diagnóstico)", type="primary"):
+        if st.button("🤖 Pedir Análise (Gemini 2.0)", type="primary"):
             if "GEMINI_API_KEY" in st.secrets:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                resumo = f"FANTASMAS:\n{fantasmas.head(5).to_string()}\nRUPTURA A:\n{ruptura_a.head(5).to_string()}"
-                prompt = f"Analise estes dados de varejo e sugira ações:\n{resumo}"
+                resumo = f"""
+                FANTASMAS (Top 10 Itens):
+                {fantasmas.head(10).to_string() if not fantasmas.empty else "Nenhum."}
                 
-                with st.spinner("Conectando..."):
+                RUPTURA CURVA A (Top 10 Itens):
+                {ruptura_a.head(10).to_string() if not ruptura_a.empty else "Nenhum."}
+                """
+                
+                prompt = f"""
+                Você é o Nexus-Compre, especialista em compras de supermercado.
+                Analise estes dados de Varejo:
+                {resumo}
+                
+                ME DÊ:
+                1. Ação para limpar o Estoque Fantasma (Seja criativo: promo, ponto extra, bonificação).
+                2. Ação urgente para Ruptura da Curva A.
+                """
+                
+                with st.spinner("O Agente está pensando... (Usando Gemini 2.0 Flash)"):
                     try:
-                        # Tenta usar o modelo mais moderno
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        # AQUI ESTÁ A MÁGICA - USANDO O MODELO QUE APARECEU NA SUA LISTA
+                        model = genai.GenerativeModel('gemini-2.0-flash')
                         res = model.generate_content(prompt)
-                        st.success("✅ Sucesso com Gemini 1.5 Flash")
+                        st.success("✅ Análise gerada com sucesso!")
                         st.write(res.text)
                     except Exception as e:
-                        st.error(f"❌ Falha ao gerar: {e}")
-                        # DIAGNÓSTICO: MOSTRAR MODELOS DISPONÍVEIS
-                        st.warning("⚠️ Tentando listar modelos disponíveis para sua conta...")
-                        try:
-                            st.write("Modelos encontrados:")
-                            for m in genai.list_models():
-                                if 'generateContent' in m.supported_generation_methods:
-                                    st.code(m.name)
-                        except Exception as e_list:
-                            st.error(f"Nem a listagem funcionou. Erro grave de biblioteca: {e_list}")
+                        st.error(f"Erro: {e}")
             else:
                 st.warning("Configure a API Key!")
