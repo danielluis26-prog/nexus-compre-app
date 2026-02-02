@@ -7,24 +7,13 @@ import time
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Nexus-Compre", page_icon="🛒", layout="wide")
 
-# --- 2. CONEXÃO FORÇA BRUTA (REST API - VARREDURA TOTAL) ---
-def conectar_forca_bruta(prompt, api_key):
-    # Lista expandida com versões específicas e antigas
-    modelos_urls = [
-        # TENTATIVA 1: O Clássico (Geralmente funciona quando os novos falham)
-        ("gemini-pro", "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"),
-        
-        # TENTATIVA 2: Versões específicas do Flash (às vezes o nome curto falha)
-        ("gemini-1.5-flash-001", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent"),
-        ("gemini-1.5-flash-002", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent"),
-        
-        # TENTATIVA 3: Nomes curtos
-        ("gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"),
-        ("gemini-1.5-flash-latest", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent"),
-        
-        # TENTATIVA 4: Experimental (Pode dar limite de cota)
+# --- 2. CONEXÃO INTELIGENTE (COM RETRY) ---
+def conectar_com_insistencia(prompt, api_key):
+    # O único modelo que sua conta aceitou foi o 2.0 Flash
+    # Vamos focar nele e no 1.5 Flash 8B (que é leve)
+    modelos_prioritarios = [
         ("gemini-2.0-flash", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"),
-        ("gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"),
+        ("gemini-1.5-flash-8b", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent"),
     ]
     
     headers = {"Content-Type": "application/json"}
@@ -34,39 +23,43 @@ def conectar_forca_bruta(prompt, api_key):
     
     log_erros = []
 
-    for nome_modelo, url_base in modelos_urls:
+    for nome_modelo, url_base in modelos_prioritarios:
         url_final = f"{url_base}?key={api_key}"
-        try:
-            # Tenta conectar
-            response = requests.post(url_final, headers=headers, data=json.dumps(payload), timeout=15)
-            
-            if response.status_code == 200:
-                # SUCESSO!
-                resultado = response.json()
-                try:
-                    texto = resultado['candidates'][0]['content']['parts'][0]['text']
-                    return texto, f"Sucesso via {nome_modelo}"
-                except:
-                    log_erros.append(f"{nome_modelo}: Resposta 200 mas vazia")
-            
-            elif response.status_code == 429:
-                # Se for limite de cota, espera 2 segundinhos e tenta o próximo
-                log_erros.append(f"{nome_modelo}: Limite de Cota (429)")
-                time.sleep(2) 
-            else:
-                log_erros.append(f"{nome_modelo}: {response.status_code}")
         
-        except Exception as e:
-            log_erros.append(f"{nome_modelo}: Erro técnico {str(e)}")
+        # Tenta até 3 vezes o mesmo modelo se der erro de cota
+        for tentativa in range(3):
+            try:
+                response = requests.post(url_final, headers=headers, data=json.dumps(payload), timeout=20)
+                
+                if response.status_code == 200:
+                    resultado = response.json()
+                    try:
+                        texto = resultado['candidates'][0]['content']['parts'][0]['text']
+                        return texto, f"Sucesso via {nome_modelo}"
+                    except:
+                        pass # Resposta vazia, tenta de novo
+                
+                elif response.status_code == 429:
+                    # O PULO DO GATO: Se der erro de limite, espera 10 segundos!
+                    time.sleep(10)
+                    continue # Volta para o loop de tentativas
+                
+                else:
+                    # Erro grave (404, 500), sai desse modelo
+                    log_erros.append(f"{nome_modelo}: {response.status_code}")
+                    break 
+            
+            except Exception as e:
+                log_erros.append(f"{nome_modelo}: Erro {str(e)}")
+                break
             
     return None, log_erros
 
-# --- 3. LEITURA DE DADOS (Blindada) ---
+# --- 3. LEITURA DE DADOS ---
 def carregar_dados(arq_vendas, arq_estoque):
     try:
-        # --- PROCESSAR VENDAS ---
-        try: 
-            df_v = pd.read_csv(arq_vendas, encoding='latin-1', sep=None, engine='python')
+        # Vendas
+        try: df_v = pd.read_csv(arq_vendas, encoding='latin-1', sep=None, engine='python')
         except: 
             arq_vendas.seek(0)
             df_v = pd.read_excel(arq_vendas)
@@ -78,16 +71,13 @@ def carregar_dados(arq_vendas, arq_estoque):
             'Valor Venda': 'Fat'
         }
         df_v = df_v.rename(columns=mapa_colunas)
-        
         cols_v = ['Codigo', 'Descricao', 'Venda', 'Fat']
         df_v = df_v[[c for c in cols_v if c in df_v.columns]]
-        
         df_v['Codigo'] = pd.to_numeric(df_v['Codigo'], errors='coerce')
         df_v = df_v.dropna(subset=['Codigo'])
         
-        # --- PROCESSAR ESTOQUE ---
-        try: 
-            df_e = pd.read_csv(arq_estoque, header=None, encoding='latin-1', sep=None, engine='python')
+        # Estoque
+        try: df_e = pd.read_csv(arq_estoque, header=None, encoding='latin-1', sep=None, engine='python')
         except: 
             arq_estoque.seek(0)
             df_e = pd.read_excel(arq_estoque, header=None)
@@ -96,18 +86,15 @@ def carregar_dados(arq_vendas, arq_estoque):
         
         if len(df_e.columns) > 5:
             df_e = df_e.rename(columns={0: 'Codigo', 1: 'Desc_E', 5: 'Estoque'})
-            
             colunas_estoque = ['Codigo', 'Desc_E', 'Estoque']
             df_e = df_e[colunas_estoque]
-            
             df_e['Codigo'] = pd.to_numeric(df_e['Codigo'], errors='coerce')
             df_e = df_e.dropna(subset=['Codigo'])
         else:
             return None
             
-        # --- MERGE ---
+        # Merge
         df = pd.merge(df_e, df_v, on='Codigo', how='outer')
-        
         if 'Descricao' in df.columns and 'Desc_E' in df.columns:
             df['Descricao'] = df['Descricao'].fillna(df['Desc_E']).fillna("Item s/ Nome")
         elif 'Desc_E' in df.columns:
@@ -179,13 +166,13 @@ if arq_vendas and arq_estoque:
                 3 Ações curtas e grossas para resolver isso hoje e liberar caixa.
                 """
                 
-                with st.spinner("O Agente está tentando 8 satélites diferentes..."):
-                    txt, info = conectar_forca_bruta(prompt, st.secrets["GEMINI_API_KEY"])
+                with st.spinner("Negociando cota com o Google (pode levar uns segundos)..."):
+                    txt, info = conectar_com_insistencia(prompt, st.secrets["GEMINI_API_KEY"])
                     if txt:
                         st.success(f"✅ Análise feita via: {info}")
                         st.markdown(txt)
                     else:
-                        st.error("❌ Falha Total. Relatório:")
+                        st.error("❌ Falha Total. O Google bloqueou temporariamente por excesso de uso.")
                         st.json(info)
 else:
     st.info("👆 Por favor, faça o upload dos DOIS arquivos acima para começar.")
