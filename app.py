@@ -10,7 +10,6 @@ st.set_page_config(page_title="Nexus-Compre", page_icon="🛒", layout="wide")
 # --- 2. CONEXÃO FORÇA BRUTA (REST API) ---
 def conectar_forca_bruta(prompt, api_key):
     # Lista de modelos para testar via URL direta
-    # Se um falhar, ele pula para o próximo imediatamente
     modelos_urls = [
         ("gemini-1.5-flash", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"),
         ("gemini-1.5-flash-latest", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent"),
@@ -38,13 +37,11 @@ def conectar_forca_bruta(prompt, api_key):
                     texto = resultado['candidates'][0]['content']['parts'][0]['text']
                     return texto, f"Sucesso via {nome_modelo}"
                 except:
-                    # Às vezes volta 200 mas sem texto (bloqueio de segurança)
-                    log_erros.append(f"{nome_modelo}: Resposta vazia (Bloqueio?)")
+                    log_erros.append(f"{nome_modelo}: Resposta vazia")
             elif response.status_code == 429:
                 log_erros.append(f"{nome_modelo}: 429 (Limite de Cota)")
             else:
-                # Erro 404, 400, 500
-                log_erros.append(f"{nome_modelo}: {response.status_code} - {response.text[:100]}...") # Pega só o começo do erro
+                log_erros.append(f"{nome_modelo}: {response.status_code}")
         
         except Exception as e:
             log_erros.append(f"{nome_modelo}: Erro técnico {str(e)}")
@@ -139,20 +136,3 @@ if f1 and f2:
             else:
                 prompt = f"""
                 ATUE COMO UM GERENTE DE COMPRAS DE SUPERMERCADO SÊNIOR.
-                Contexto: Dados reais de Varejo Alimentar.
-                NÃO SEJA UM COACH. SEJA TÉCNICO E COMERCIAL.
-
-                DADOS:
-                - Itens Fantasmas (Estoque parado, Venda Zero):
-                {fantasmas[['Codigo', 'Descricao', 'Estoque']].head(10).to_string(index=False)}
-
-                - Ruptura Curva A (Vende muito, Estoque Zero):
-                {ruptura[['Codigo', 'Descricao', 'Venda']].head(10).to_string(index=False)}
-
-                MISSÃO:
-                3 Ações curtas e grossas para resolver isso hoje e liberar caixa.
-                """
-                
-                with st.spinner("Testando conexão com múltiplos modelos..."):
-                    txt, info = conectar_forca_bruta(prompt, st.secrets["GEMINI_API_KEY"])
-                    if txt:
