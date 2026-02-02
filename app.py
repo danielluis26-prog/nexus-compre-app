@@ -49,26 +49,12 @@ def conectar_forca_bruta(prompt, api_key):
 # --- 3. LEITURA DE DADOS (Blindada) ---
 def carregar_dados(arq_vendas, arq_estoque):
     try:
-        # Vendas
-        try: df_v = pd.read_csv(arq_vendas, encoding='latin-1', sep=None, engine='python')
+        # --- PROCESSAR VENDAS ---
+        try: 
+            df_v = pd.read_csv(arq_vendas, encoding='latin-1', sep=None, engine='python')
         except: 
             arq_vendas.seek(0)
             df_v = pd.read_excel(arq_vendas)
             
-        df_v = df_v.rename(columns={'Item de Estoque:': 'Codigo', 'Qtde\r\nCupom': 'Descricao', 'Qtde. Venda': 'Venda', 'Valor Venda': 'Fat'})
-        
-        cols_v = ['Codigo', 'Descricao', 'Venda', 'Fat']
-        df_v = df_v[[c for c in cols_v if c in df_v.columns]]
-        df_v['Codigo'] = pd.to_numeric(df_v['Codigo'], errors='coerce')
-        df_v = df_v.dropna(subset=['Codigo'])
-        
-        # Estoque
-        try: df_e = pd.read_csv(arq_estoque, header=None, encoding='latin-1', sep=None, engine='python')
-        except: 
-            arq_estoque.seek(0)
-            df_e = pd.read_excel(arq_estoque, header=None)
-            
-        df_e = df_e.dropna(subset=[0])
-        if len(df_e.columns) > 5:
-            df_e = df_e.rename(columns={0: 'Codigo', 1: 'Desc_E', 5: 'Estoque'})
-            df_e = df_e[['
+        df_v = df_v.rename(columns={
+            'Item de Estoque:
