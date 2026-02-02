@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import time
 import google.generativeai as genai
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
@@ -15,7 +16,6 @@ def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
             arquivo_vendas.seek(0)
             df_vendas = pd.read_excel(arquivo_vendas)
 
-        # Renomear colunas
         df_vendas = df_vendas.rename(columns={
             'Item de Estoque:': 'Codigo',
             'Qtde\r\nCupom': 'Descricao_Venda', 
@@ -23,7 +23,6 @@ def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
             'Valor Venda': 'Faturamento'
         })
         
-        # Filtrar e limpar
         cols_vendas = [c for c in ['Codigo', 'Descricao_Venda', 'Qtd_Venda_30d', 'Faturamento'] if c in df_vendas.columns]
         df_vendas = df_vendas[cols_vendas]
         df_vendas['Codigo'] = pd.to_numeric(df_vendas['Codigo'], errors='coerce')
@@ -51,7 +50,6 @@ def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
         # MERGE
         df_final = pd.merge(df_estoque, df_vendas, on='Codigo', how='outer')
         
-        # Consolidar Descrição
         if 'Descricao_Venda' in df_final.columns and 'Descricao_Estoque' in df_final.columns:
             df_final['Descricao'] = df_final['Descricao_Venda'].fillna(df_final['Descricao_Estoque']).fillna("Item s/ Descrição")
             df_final = df_final.drop(columns=['Descricao_Venda', 'Descricao_Estoque'])
@@ -60,7 +58,6 @@ def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
         elif 'Descricao_Estoque' in df_final.columns:
              df_final['Descricao'] = df_final['Descricao_Estoque'].fillna("Item s/ Descrição")
         
-        # Zerar nulos
         for col in ['Estoque_Atual', 'Qtd_Venda_30d', 'Faturamento']:
             if col in df_final.columns:
                 df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0)
@@ -97,7 +94,7 @@ def processar_nexus(df):
 
 # --- 4. INTERFACE ---
 st.title("🛒 Nexus-Compre: Agente Integrado")
-st.markdown("**Versão VIP** | IA: Gemini 2.0 Flash")
+st.markdown("**Versão Estável** | IA: Gemini 1.5 Flash (Alta Capacidade)")
 
 col_up1, col_up2 = st.columns(2)
 arq_vendas = col_up1.file_uploader("VENDAS", type=["csv", "xls", "xlsx"])
@@ -124,36 +121,36 @@ if arq_vendas and arq_estoque:
         with tab3: st.dataframe(df_nexus, use_container_width=True)
         
         st.divider()
-        if st.button("🤖 Pedir Análise (Gemini 2.0)", type="primary"):
+        if st.button("🤖 Pedir Análise (Diagnóstico)", type="primary"):
             if "GEMINI_API_KEY" in st.secrets:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                resumo = f"""
-                FANTASMAS (Top 10 Itens):
-                {fantasmas.head(10).to_string() if not fantasmas.empty else "Nenhum."}
+                resumo = f"FANTASMAS (Top 10):\n{fantasmas.head(10).to_string()}\nRUPTURA A (Top 10):\n{ruptura_a.head(10).to_string()}"
+                prompt = f"Analise estes dados de varejo e sugira ações práticas (Você é o Comprador Nexus):\n{resumo}"
                 
-                RUPTURA CURVA A (Top 10 Itens):
-                {ruptura_a.head(10).to_string() if not ruptura_a.empty else "Nenhum."}
-                """
-                
-                prompt = f"""
-                Você é o Nexus-Compre, especialista em compras de supermercado.
-                Analise estes dados de Varejo:
-                {resumo}
-                
-                ME DÊ:
-                1. Ação para limpar o Estoque Fantasma (Seja criativo: promo, ponto extra, bonificação).
-                2. Ação urgente para Ruptura da Curva A.
-                """
-                
-                with st.spinner("O Agente está pensando... (Usando Gemini 2.0 Flash)"):
+                with st.spinner("Conectando ao Gemini 1.5 Flash..."):
                     try:
-                        # AQUI ESTÁ A MÁGICA - USANDO O MODELO QUE APARECEU NA SUA LISTA
-                        model = genai.GenerativeModel('gemini-2.0-flash')
+                        # Voltamos para o 1.5 Flash que tem cota grátis ALTA
+                        # Como atualizamos o requirements.txt, ele vai funcionar agora!
+                        model = genai.GenerativeModel('gemini-1.5-flash')
                         res = model.generate_content(prompt)
-                        st.success("✅ Análise gerada com sucesso!")
+                        st.success("✅ Análise Concluída")
                         st.write(res.text)
+                    
                     except Exception as e:
-                        st.error(f"Erro: {e}")
+                        erro_str = str(e)
+                        if "429" in erro_str:
+                            st.error("🚦 Calma! Muitas requisições seguidas. O Google pediu para esperar 30 segundos.")
+                        elif "404" in erro_str:
+                             # Fallback de segurança para o modelo Pro antigo
+                             try:
+                                 st.warning("⚠️ Tentando modelo alternativo...")
+                                 model = genai.GenerativeModel('gemini-pro')
+                                 res = model.generate_content(prompt)
+                                 st.write(res.text)
+                             except:
+                                 st.error(f"Erro técnico na IA: {e}")
+                        else:
+                            st.error(f"Erro inesperado: {e}")
             else:
                 st.warning("Configure a API Key!")
