@@ -1,12 +1,40 @@
 import streamlit as st
 import pandas as pd
-import time
 import google.generativeai as genai
+import time
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Nexus-Compre", page_icon="🛒", layout="wide")
 
-# --- 2. FUNÇÃO DE LEITURA E LIMPEZA ---
+# --- 2. FUNÇÃO DE CONEXÃO ROBUSTA (A Chave Mestra) ---
+def tentar_conectar_ia(prompt, api_key):
+    # Lista de modelos para tentar (do mais rápido/novo para o mais antigo/seguro)
+    modelos_para_tentar = [
+        "gemini-1.5-flash",          # O ideal (Rápido e Barato)
+        "gemini-1.5-flash-latest",   # Variação do ideal
+        "gemini-1.5-pro",            # Mais inteligente
+        "gemini-pro",                # O clássico (Estável)
+        "gemini-1.0-pro"             # Legado
+    ]
+
+    genai.configure(api_key=api_key)
+    log_erros = []
+
+    for modelo_nome in modelos_para_tentar:
+        try:
+            model = genai.GenerativeModel(modelo_nome)
+            # Tenta gerar
+            response = model.generate_content(prompt)
+            return response.text, modelo_nome # Sucesso! Retorna o texto e qual modelo funcionou
+        except Exception as e:
+            # Se der erro (404, 429, etc), guarda o erro e tenta o próximo da lista
+            log_erros.append(f"{modelo_nome}: {str(e)}")
+            continue
+    
+    # Se chegou aqui, nenhum funcionou
+    return None, log_erros
+
+# --- 3. FUNÇÃO DE LEITURA E LIMPEZA ---
 def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
     try:
         # VENDAS
@@ -71,7 +99,7 @@ def carregar_e_limpar_dados(arquivo_vendas, arquivo_estoque):
         st.error(f"Erro leitura: {e}")
         return None
 
-# --- 3. LÓGICA DE NEGÓCIO ---
+# --- 4. LÓGICA DE NEGÓCIO ---
 def processar_nexus(df):
     if 'Faturamento' not in df.columns: df['Faturamento'] = 0
     if 'Estoque_Atual' not in df.columns: df['Estoque_Atual'] = 0
@@ -92,9 +120,9 @@ def processar_nexus(df):
     df['Alerta_Fantasma'] = (df['Estoque_Atual'] > 5) & (df['Qtd_Venda_30d'] == 0)
     return df
 
-# --- 4. INTERFACE ---
+# --- 5. INTERFACE ---
 st.title("🛒 Nexus-Compre: Agente Integrado")
-st.markdown("**Versão Estável** | IA: Gemini 1.5 Flash (Alta Capacidade)")
+st.markdown("**Versão Final** | Auto-Seleção de Modelo IA")
 
 col_up1, col_up2 = st.columns(2)
 arq_vendas = col_up1.file_uploader("VENDAS", type=["csv", "xls", "xlsx"])
@@ -121,36 +149,20 @@ if arq_vendas and arq_estoque:
         with tab3: st.dataframe(df_nexus, use_container_width=True)
         
         st.divider()
-        if st.button("🤖 Pedir Análise (Diagnóstico)", type="primary"):
+        if st.button("🤖 Pedir Análise (Auto-Diagnóstico)", type="primary"):
             if "GEMINI_API_KEY" in st.secrets:
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
                 resumo = f"FANTASMAS (Top 10):\n{fantasmas.head(10).to_string()}\nRUPTURA A (Top 10):\n{ruptura_a.head(10).to_string()}"
                 prompt = f"Analise estes dados de varejo e sugira ações práticas (Você é o Comprador Nexus):\n{resumo}"
                 
-                with st.spinner("Conectando ao Gemini 1.5 Flash..."):
-                    try:
-                        # Voltamos para o 1.5 Flash que tem cota grátis ALTA
-                        # Como atualizamos o requirements.txt, ele vai funcionar agora!
-                        model = genai.GenerativeModel('gemini-1.5-flash')
-                        res = model.generate_content(prompt)
-                        st.success("✅ Análise Concluída")
-                        st.write(res.text)
+                with st.spinner("O Nexus está procurando o melhor cérebro disponível..."):
+                    resposta, modelo_usado = tentar_conectar_ia(prompt, st.secrets["GEMINI_API_KEY"])
                     
-                    except Exception as e:
-                        erro_str = str(e)
-                        if "429" in erro_str:
-                            st.error("🚦 Calma! Muitas requisições seguidas. O Google pediu para esperar 30 segundos.")
-                        elif "404" in erro_str:
-                             # Fallback de segurança para o modelo Pro antigo
-                             try:
-                                 st.warning("⚠️ Tentando modelo alternativo...")
-                                 model = genai.GenerativeModel('gemini-pro')
-                                 res = model.generate_content(prompt)
-                                 st.write(res.text)
-                             except:
-                                 st.error(f"Erro técnico na IA: {e}")
-                        else:
-                            st.error(f"Erro inesperado: {e}")
+                    if resposta:
+                        st.success(f"✅ Análise gerada usando: **{modelo_usado}**")
+                        st.write(resposta)
+                    else:
+                        st.error("❌ Falha total. Nenhum modelo do Google respondeu.")
+                        st.json(modelo_usado) # Mostra o log de erros técnicos se tudo falhar
             else:
                 st.warning("Configure a API Key!")
